@@ -1,37 +1,29 @@
-import React from "react";
+// sprout-admin/src/pages/Courses.jsx
+import React, { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip,
   ResponsiveContainer, CartesianGrid, Cell,
 } from "recharts";
-import { Brain, CheckCircle, Clock, Star } from "lucide-react";
-import { fetchAICourseStats } from "@/lib/adminApi";
-import ChartCard from "@/components/ChartCard";
-import StatCard  from "@/components/StatCard";
+import { Brain, CheckCircle, Clock, Star, Users } from "lucide-react";
+import { fetchCourses, fetchCourseStats, fetchEnrolledCount } from "@/lib/adminApi";
+import ChartCard    from "@/components/ChartCard";
+import StatCard     from "@/components/StatCard";
+import CourseSelector from "@/components/CourseSelector";
 
-const DAY_TITLES = [
-  "What is AI?",
-  "How Machines Learn",
-  "AI in the Real World",
-  "Generative AI & Hallucinations",
-  "Using AI Effectively",
-  "Ethics: Bias, Privacy, Deepfakes",
-  "AI and Society",
-  "Practical AI Skills Lab",
-  "Capstone + Review",
-  "Final Exam + Certification",
-];
+const SPROUT_COLORS = ["#22c55e", "#4ade80", "#86efac", "#16a34a", "#15803d"];
 
 const CustomTooltip = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null;
-  const d = payload[0]?.payload;
   return (
     <div className="bg-ink-800 border border-ink-700 rounded-xl p-3 text-xs shadow-xl space-y-1.5 min-w-[160px]">
       <p className="text-ink-300 font-semibold">{label}</p>
       {payload.map((p) => (
         <div key={p.name} className="flex justify-between gap-4">
           <span className="text-ink-500 capitalize">{p.name}</span>
-          <span className="font-mono-data text-ink-100">{p.value}{p.name === "rate" ? "%" : ""}</span>
+          <span className="font-mono text-ink-100">
+            {p.value}{p.name === "rate" ? "%" : ""}
+          </span>
         </div>
       ))}
     </div>
@@ -39,170 +31,229 @@ const CustomTooltip = ({ active, payload, label }) => {
 };
 
 export default function CoursesPage() {
-  const { data: stats = [], isLoading } = useQuery({
-    queryKey: ["aiCourseStats"],
-    queryFn: fetchAICourseStats,
+  // ── course list ───────────────────────────────────────────────
+  const { data: courses = [], isLoading: loadingCourses } = useQuery({
+    queryKey: ["courses"],
+    queryFn:  fetchCourses,
   });
 
-  const totalCompletions   = stats.reduce((s, d) => s + d.completions, 0);
-  const avgRate            = stats.length ? Math.round(stats.reduce((s, d) => s + d.rate, 0) / stats.length) : 0;
-  const hardestDay         = stats.reduce((min, d) => (d.rate < (min?.rate ?? 999) ? d : min), null);
-  const avgScoreOverall    = (() => {
+  // ── selected course (default to first in list) ────────────────
+  const [selectedCourse, setSelectedCourse] = useState(null);
+
+  // Once courses load, auto-select the first one
+  const activeCourse = selectedCourse ?? courses[0] ?? null;
+
+  // ── stats for selected course ─────────────────────────────────
+  const { data: stats = [], isLoading: loadingStats } = useQuery({
+    queryKey: ["courseStats", activeCourse?.id],
+    queryFn:  () => fetchCourseStats(
+      activeCourse.id,
+      activeCourse.slug,
+      activeCourse.total_days ?? 10
+    ),
+    enabled: !!activeCourse,
+  });
+
+  // ── enrollment for selected course ───────────────────────────
+  const { data: enrollment = { enrolled: 0, completed: 0 }, isLoading: loadingEnrollment } = useQuery({
+    queryKey: ["courseEnrollment", activeCourse?.id],
+    queryFn:  () => fetchEnrolledCount(activeCourse.id, activeCourse.slug),
+    enabled: !!activeCourse,
+  });
+
+  // ── derived KPIs ──────────────────────────────────────────────
+  const isLoading = loadingCourses || loadingStats || loadingEnrollment;
+
+  const totalCompletions = stats.reduce((s, d) => s + d.completions, 0);
+  const avgRate = stats.length
+    ? Math.round(stats.reduce((s, d) => s + d.rate, 0) / stats.length)
+    : 0;
+
+  const hardestDay = stats.reduce(
+    (min, d) => (d.rate < (min?.rate ?? 999) ? d : min),
+    null
+  );
+
+  const avgScoreOverall = (() => {
     const scored = stats.filter((d) => d.avgScore != null);
     if (!scored.length) return null;
     return Math.round(scored.reduce((s, d) => s + d.avgScore, 0) / scored.length);
   })();
 
+  const completionRate = enrollment.enrolled > 0
+    ? Math.round((enrollment.completed / enrollment.enrolled) * 100)
+    : 0;
+
   return (
     <div className="space-y-8 max-w-7xl mx-auto">
-      <div>
-        <h1 className="font-display text-2xl font-bold text-ink-50">AI Literacy Course</h1>
-        <p className="text-ink-500 text-sm mt-1">Completion rates and performance analytics</p>
-      </div>
 
-      {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          label="Total Completions"
-          value={totalCompletions.toLocaleString()}
-          sub="lesson completions across all users"
-          icon={CheckCircle}
-          accent="sprout"
-          loading={isLoading}
-        />
-        <StatCard
-          label="Avg Completion Rate"
-          value={`${avgRate}%`}
-          sub="across all 10 days"
-          icon={Brain}
-          accent="violet"
-          loading={isLoading}
-        />
-        <StatCard
-          label="Avg Quiz Score"
-          value={avgScoreOverall != null ? `${avgScoreOverall}%` : "—"}
-          sub="for completed lessons"
-          icon={Star}
-          accent="amber"
-          loading={isLoading}
-        />
-        <StatCard
-          label="Hardest Day"
-          value={hardestDay ? `Day ${hardestDay.day}` : "—"}
-          sub={hardestDay ? `${hardestDay.rate}% completion` : "No data yet"}
-          icon={Clock}
-          accent="red"
-          loading={isLoading}
-        />
-      </div>
-
-      {/* Bar charts */}
-      <div className="grid lg:grid-cols-2 gap-6">
-        <ChartCard
-          title="Completions per Day"
-          subtitle="Total students who completed each lesson"
-          loading={isLoading}
-        >
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={stats} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-              <CartesianGrid stroke="#27272a" strokeDasharray="3 3" vertical={false} />
-              <XAxis dataKey="label" tick={{ fill: "#71717a", fontSize: 10 }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fill: "#71717a", fontSize: 11 }} axisLine={false} tickLine={false} allowDecimals={false} />
-              <Tooltip content={<CustomTooltip />} />
-              <Bar dataKey="completions" radius={[4, 4, 0, 0]} maxBarSize={28}>
-                {stats.map((_, i) => (
-                  <Cell key={i} fill={i < 3 ? "#22c55e" : i < 7 ? "#3b82f6" : "#8b5cf6"} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </ChartCard>
-
-        <ChartCard
-          title="Completion Rate per Day"
-          subtitle="% of students who started a day and finished it"
-          loading={isLoading}
-        >
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={stats} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-              <CartesianGrid stroke="#27272a" strokeDasharray="3 3" vertical={false} />
-              <XAxis dataKey="label" tick={{ fill: "#71717a", fontSize: 10 }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fill: "#71717a", fontSize: 11 }} axisLine={false} tickLine={false} domain={[0, 100]} unit="%" />
-              <Tooltip content={<CustomTooltip />} />
-              <Bar dataKey="rate" radius={[4, 4, 0, 0]} maxBarSize={28} fill="#f59e0b" />
-            </BarChart>
-          </ResponsiveContainer>
-        </ChartCard>
-      </div>
-
-      {/* Day-by-day table */}
-      <div className="glass rounded-2xl overflow-hidden">
-        <div className="px-6 py-4 border-b border-ink-700/50">
-          <h2 className="font-display font-semibold text-ink-200 text-sm">Day-by-Day Breakdown</h2>
+      {/* ── Header + Course Selector ──────────────────────────── */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="font-display text-2xl font-bold text-ink-50">
+            {activeCourse ? activeCourse.name : "Courses"}
+          </h1>
+          <p className="text-ink-500 text-sm mt-1">
+            Completion rates and performance analytics
+          </p>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-ink-700/40">
-                {["Day", "Title", "Attempts", "Completions", "Rate", "Avg Score", "Avg Time"].map((h) => (
-                  <th key={h} className="text-left px-4 py-3 first:pl-6 text-ink-500 font-medium text-xs whitespace-nowrap">
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-ink-800">
-              {isLoading
-                ? Array.from({ length: 10 }, (_, i) => (
-                    <tr key={i}>
-                      {Array.from({ length: 7 }, (_, j) => (
-                        <td key={j} className="px-4 py-3 first:pl-6">
-                          <div className="h-4 bg-ink-800 rounded animate-pulse" />
-                        </td>
-                      ))}
-                    </tr>
-                  ))
-                : stats.map((d) => (
-                    <tr key={d.day} className="hover:bg-ink-800/40 transition-colors">
-                      <td className="px-4 py-3.5 pl-6">
-                        <span className="font-mono-data text-sprout-400 font-semibold text-xs">D{d.day}</span>
-                      </td>
-                      <td className="px-4 py-3.5 text-ink-300 max-w-[200px] truncate">
-                        {DAY_TITLES[d.day - 1]}
-                      </td>
-                      <td className="px-4 py-3.5 font-mono-data text-ink-400 text-xs">{d.attempts}</td>
-                      <td className="px-4 py-3.5">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono-data text-ink-200 text-xs">{d.completions}</span>
-                          {d.completions > 0 && (
-                            <CheckCircle className="w-3.5 h-3.5 text-sprout-500" />
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3.5">
-                        <div className="flex items-center gap-2">
-                          <div className="w-16 h-1.5 bg-ink-700 rounded-full overflow-hidden flex-shrink-0">
-                            <div
-                              className={`h-full rounded-full ${d.rate >= 70 ? "bg-sprout-500" : d.rate >= 40 ? "bg-amber-500" : "bg-red-500"}`}
-                              style={{ width: `${d.rate}%` }}
-                            />
-                          </div>
-                          <span className="font-mono-data text-xs text-ink-300">{d.rate}%</span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3.5 font-mono-data text-ink-400 text-xs">
-                        {d.avgScore != null ? `${d.avgScore}%` : "—"}
-                      </td>
-                      <td className="px-4 py-3.5 font-mono-data text-ink-400 text-xs">
-                        {d.avgTime != null ? `${d.avgTime}m` : "—"}
-                      </td>
-                    </tr>
-                  ))
-              }
-            </tbody>
-          </table>
-        </div>
+
+        <CourseSelector
+          selectedCourseId={activeCourse?.id ?? null}
+          onChange={setSelectedCourse}
+          showAll={false}
+        />
       </div>
+
+      {/* ── No courses yet ────────────────────────────────────── */}
+      {!loadingCourses && courses.length === 0 && (
+        <div className="rounded-2xl border border-ink-700 bg-ink-800/50 p-10 text-center">
+          <p className="text-ink-400 text-sm">
+            No courses found. Run the SQL migration to seed the courses table.
+          </p>
+        </div>
+      )}
+
+      {activeCourse && (
+        <>
+          {/* ── KPIs ──────────────────────────────────────────── */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <StatCard
+              label="Enrolled Users"
+              value={enrollment.enrolled.toLocaleString()}
+              sub="unique users who started this course"
+              icon={Users}
+              accent="sprout"
+              loading={isLoading}
+            />
+            <StatCard
+              label="Course Completions"
+              value={enrollment.completed.toLocaleString()}
+              sub={`${completionRate}% completion rate`}
+              icon={CheckCircle}
+              accent="sprout"
+              loading={isLoading}
+            />
+            <StatCard
+              label="Avg Lesson Complete Rate"
+              value={`${avgRate}%`}
+              sub={`across all ${activeCourse.total_days} days`}
+              icon={Brain}
+              accent="violet"
+              loading={isLoading}
+            />
+            <StatCard
+              label="Avg Quiz Score"
+              value={avgScoreOverall != null ? `${avgScoreOverall}%` : "—"}
+              sub="across completed lessons"
+              icon={Star}
+              accent="amber"
+              loading={isLoading}
+            />
+          </div>
+
+          {/* ── Completion Rate by Day ─────────────────────────── */}
+          <ChartCard title="Lesson Completion Rate by Day">
+            <ResponsiveContainer width="100%" height={280}>
+              <BarChart data={stats} margin={{ top: 4, right: 8, left: -10, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
+                <XAxis
+                  dataKey="label"
+                  tick={{ fill: "#71717a", fontSize: 11 }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <YAxis
+                  tick={{ fill: "#71717a", fontSize: 11 }}
+                  axisLine={false}
+                  tickLine={false}
+                  domain={[0, 100]}
+                  tickFormatter={(v) => `${v}%`}
+                />
+                <Tooltip content={<CustomTooltip />} />
+                <Bar dataKey="rate" name="rate" radius={[6, 6, 0, 0]} maxBarSize={48}>
+                  {stats.map((entry, i) => (
+                    <Cell
+                      key={`cell-${i}`}
+                      fill={
+                        entry === hardestDay
+                          ? "#ef4444"
+                          : SPROUT_COLORS[i % SPROUT_COLORS.length]
+                      }
+                    />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </ChartCard>
+
+          {/* ── Completions by Day ────────────────────────────── */}
+          <ChartCard title="Total Lesson Completions by Day">
+            <ResponsiveContainer width="100%" height={260}>
+              <BarChart data={stats} margin={{ top: 4, right: 8, left: -10, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
+                <XAxis
+                  dataKey="label"
+                  tick={{ fill: "#71717a", fontSize: 11 }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <YAxis
+                  tick={{ fill: "#71717a", fontSize: 11 }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <Tooltip content={<CustomTooltip />} />
+                <Bar dataKey="completions" name="completions" fill="#6366f1" radius={[6, 6, 0, 0]} maxBarSize={48} />
+              </BarChart>
+            </ResponsiveContainer>
+          </ChartCard>
+
+          {/* ── Avg Quiz Score by Day ─────────────────────────── */}
+          {stats.some((d) => d.avgScore != null) && (
+            <ChartCard title="Avg Quiz Score by Day">
+              <ResponsiveContainer width="100%" height={260}>
+                <BarChart
+                  data={stats.filter((d) => d.avgScore != null)}
+                  margin={{ top: 4, right: 8, left: -10, bottom: 0 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fill: "#71717a", fontSize: 11 }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    tick={{ fill: "#71717a", fontSize: 11 }}
+                    axisLine={false}
+                    tickLine={false}
+                    domain={[0, 100]}
+                    tickFormatter={(v) => `${v}%`}
+                  />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Bar dataKey="avgScore" name="avg score" fill="#f59e0b" radius={[6, 6, 0, 0]} maxBarSize={48} />
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartCard>
+          )}
+
+          {/* ── Hardest Day callout ───────────────────────────── */}
+          {hardestDay && hardestDay.rate < 80 && (
+            <div className="rounded-2xl border border-red-500/20 bg-red-500/5 px-5 py-4 flex items-start gap-3">
+              <Clock className="w-5 h-5 text-red-400 mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="text-ink-200 text-sm font-semibold">
+                  Hardest day: {hardestDay.label} — only {hardestDay.rate}% completion
+                </p>
+                <p className="text-ink-500 text-xs mt-0.5">
+                  Consider reviewing the content or adding extra support for this lesson.
+                </p>
+              </div>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
