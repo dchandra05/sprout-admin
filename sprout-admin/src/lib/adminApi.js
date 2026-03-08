@@ -1,62 +1,122 @@
 // sprout-admin/src/lib/adminApi.js
 import { supabase } from "@/lib/supabaseClient";
 
-// ─── KPI / Dashboard ─────────────────────────────────────────
+// ─── KPI Overview ────────────────────────────────────────────
 
 export async function fetchKPIs() {
-  const [totalRes, dauRes, wauRes, mauRes] = await Promise.all([
-    supabase.from("profiles").select("id", { count: "exact", head: true }),
+  const [usersRes, activityRes, aiRes] = await Promise.all([
+    supabase.from("profiles").select("id, created_at, last_seen_at"),
     supabase
       .from("user_activity_events")
-      .select("user_email", { count: "exact", head: true })
-      .gte("created_at", new Date(Date.now() - 86_400_000).toISOString()),
-    supabase
-      .from("user_activity_events")
-      .select("user_email", { count: "exact", head: true })
-      .gte("created_at", new Date(Date.now() - 7 * 86_400_000).toISOString()),
-    supabase
-      .from("user_activity_events")
-      .select("user_email", { count: "exact", head: true })
-      .gte("created_at", new Date(Date.now() - 30 * 86_400_000).toISOString()),
+      .select("user_email, created_at")
+      .gte("created_at", new Date(Date.now() - 30 * 864e5).toISOString()),
+    supabase.from("ai_course_day_progress").select("user_email, completed"),
   ]);
 
+  const users      = usersRes.data      ?? [];
+  const activity   = activityRes.data   ?? [];
+  const aiProgress = aiRes.data         ?? [];
+
+  const now    = Date.now();
+  const day1   = now - 1  * 864e5;
+  const week1  = now - 7  * 864e5;
+  const month1 = now - 30 * 864e5;
+
+  const dauEmails = new Set(
+    activity.filter((e) => new Date(e.created_at) >= new Date(day1)).map((e) => e.user_email)
+  );
+  const wauEmails = new Set(
+    activity.filter((e) => new Date(e.created_at) >= new Date(week1)).map((e) => e.user_email)
+  );
+  const mauEmails = new Set(activity.map((e) => e.user_email));
+
   return {
-    totalUsers: totalRes.count ?? 0,
-    dau:        dauRes.count  ?? 0,
-    wau:        wauRes.count  ?? 0,
-    mau:        mauRes.count  ?? 0,
+    totalUsers:    users.length,
+    newUsersToday: users.filter((u) => new Date(u.created_at) >= new Date(day1)).length,
+    newUsersWeek:  users.filter((u) => new Date(u.created_at) >= new Date(week1)).length,
+    newUsersMonth: users.filter((u) => new Date(u.created_at) >= new Date(month1)).length,
+    dau:           dauEmails.size,
+    wau:           wauEmails.size,
+    mau:           mauEmails.size,
+    aiCompletions: aiProgress.filter((p) => p.completed).length,
   };
 }
 
-export async function fetchDailySignups(daysBack = 30) {
-  const { data, error } = await supabase.rpc("get_daily_signups", { days_back: daysBack });
+// ─── Time Series ─────────────────────────────────────────────
+
+export async function fetchDailySignups(days = 30) {
+  const since = new Date(Date.now() - days * 864e5).toISOString();
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("created_at")
+    .gte("created_at", since)
+    .order("created_at");
+
   if (error) throw error;
-  return data ?? [];
+
+  const counts = {};
+  for (const row of data ?? []) {
+    const d = row.created_at.slice(0, 10);
+    counts[d] = (counts[d] ?? 0) + 1;
+  }
+
+  const result = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const key = d.toISOString().slice(0, 10);
+    result.push({ date: key, value: counts[key] ?? 0 });
+  }
+  return result;
 }
 
-export async function fetchDailyActiveUsers(daysBack = 30) {
-  const { data, error } = await supabase.rpc("get_daily_active_users", { days_back: daysBack });
+export async function fetchDailyActiveUsers(days = 30) {
+  const since = new Date(Date.now() - days * 864e5).toISOString();
+  const { data, error } = await supabase
+    .from("user_activity_events")
+    .select("user_email, created_at")
+    .gte("created_at", since);
+
   if (error) throw error;
-  return data ?? [];
+
+  const byDay = {};
+  for (const row of data ?? []) {
+    const d = row.created_at.slice(0, 10);
+    if (!byDay[d]) byDay[d] = new Set();
+    byDay[d].add(row.user_email);
+  }
+
+  const result = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const key = d.toISOString().slice(0, 10);
+    result.push({ date: key, value: byDay[key]?.size ?? 0 });
+  }
+  return result;
 }
 
 // ─── Users ───────────────────────────────────────────────────
 
+/**
+ * Returns a flat array of profile rows.
+ * Tries the admin_user_summary view first (has ai_days_completed),
+ * falls back to direct profiles table.
+ */
 export async function fetchUsers() {
-  const { data, error } = await supabase
+  const { data: viewData, error: viewErr } = await supabase
     .from("admin_user_summary")
     .select("*")
     .order("created_at", { ascending: false });
 
-  if (error) {
-    // Fallback to direct profiles query if view not yet created
-    const { data: fallback, error: fbErr } = await supabase
-      .from("profiles")
-      .select("*")
-      .order("created_at", { ascending: false });
-    if (fbErr) throw fbErr;
-    return fallback ?? [];
-  }
+  if (!viewErr && viewData) return viewData;
+
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
   return data ?? [];
 }
 
@@ -99,10 +159,6 @@ export async function fetchUserDetail(userId) {
 
 // ─── Courses ─────────────────────────────────────────────────
 
-/**
- * Fetch all active courses from the courses table.
- * Returns an array of { id, slug, name, total_days }.
- */
 export async function fetchCourses() {
   const { data, error } = await supabase
     .from("courses")
@@ -114,12 +170,6 @@ export async function fetchCourses() {
   return data ?? [];
 }
 
-/**
- * Fetch per-day lesson stats for a specific course.
- * Uses user_lesson_progress (new schema).
- * Falls back to ai_course_day_progress for the AI Literacy course
- * if user_lesson_progress has no data yet.
- */
 export async function fetchCourseStats(courseId, courseSlug, totalDays = 10) {
   // Try new schema first
   const { data: newData, error: newErr } = await supabase
@@ -134,12 +184,11 @@ export async function fetchCourseStats(courseId, courseSlug, totalDays = 10) {
     });
   }
 
-  // Fallback: use legacy table for AI Literacy
+  // Fallback to legacy table for AI Literacy
   if (courseSlug === "ai-literacy") {
     const { data: legacyData, error: legacyErr } = await supabase
       .from("ai_course_day_progress")
       .select("day_number, completed, quiz_score, user_email");
-
     if (legacyErr) throw legacyErr;
     return _buildDayStats(legacyData ?? [], totalDays, {
       completedField: (r) => r.completed,
@@ -147,7 +196,6 @@ export async function fetchCourseStats(courseId, courseSlug, totalDays = 10) {
     });
   }
 
-  // No data yet — return empty scaffolding
   return _buildDayStats([], totalDays, {
     completedField: () => false,
     scoreField:     () => null,
@@ -182,11 +230,7 @@ function _buildDayStats(rows, totalDays, { completedField, scoreField }) {
   });
 }
 
-/**
- * Fetch enrollment numbers for a course.
- */
 export async function fetchEnrolledCount(courseId, courseSlug) {
-  // Try new schema
   const { count: newCount, error: newErr } = await supabase
     .from("user_course_progress")
     .select("id", { count: "exact", head: true })
@@ -198,16 +242,13 @@ export async function fetchEnrolledCount(courseId, courseSlug) {
       .select("id", { count: "exact", head: true })
       .eq("course_id", courseId)
       .eq("percent_complete", 100);
-
     return { enrolled: newCount, completed: completedCount ?? 0 };
   }
 
-  // Fallback for AI Literacy: count distinct users in legacy table
   if (courseSlug === "ai-literacy") {
     const { data } = await supabase
       .from("ai_course_day_progress")
       .select("user_email");
-
     const uniqueUsers = new Set((data ?? []).map((r) => r.user_email)).size;
     return { enrolled: uniqueUsers, completed: 0 };
   }
@@ -215,10 +256,9 @@ export async function fetchEnrolledCount(courseId, courseSlug) {
   return { enrolled: 0, completed: 0 };
 }
 
-// ─── Legacy: kept for backward compat with old Courses.jsx ──
+// ─── Legacy alias ─────────────────────────────────────────────
 
 export async function fetchAICourseStats() {
-  // Re-use the new generic function pointed at ai-literacy
   const { data: courseRow } = await supabase
     .from("courses")
     .select("id, slug, total_days")
@@ -226,10 +266,9 @@ export async function fetchAICourseStats() {
     .maybeSingle();
 
   if (!courseRow) {
-    // courses table empty — fall back to direct legacy query
     const { data, error } = await supabase
       .from("ai_course_day_progress")
-      .select("day_number, completed, quiz_score, time_spent_minutes, user_email");
+      .select("day_number, completed, quiz_score, user_email");
     if (error) throw error;
     return _buildDayStats(data ?? [], 10, {
       completedField: (r) => r.completed,

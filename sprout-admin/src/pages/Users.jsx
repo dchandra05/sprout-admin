@@ -1,9 +1,10 @@
-import React, { useState, useCallback } from "react";
+// sprout-admin/src/pages/Users.jsx
+import React, { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { format, parseISO, formatDistanceToNow } from "date-fns";
-import { Search, ChevronRight, Users, Brain, Zap } from "lucide-react";
-import { fetchUsers } from "@/lib/adminApi";
+import { Search, ChevronRight, Users } from "lucide-react";
+import { fetchUsers } from "@/lib/adminApi";  // ✅ correct export name
 
 function useDebounce(value, delay = 350) {
   const [debounced, setDebounced] = React.useState(value);
@@ -43,17 +44,26 @@ function LastSeen({ ts }) {
 }
 
 export default function UsersPage() {
-  const navigate  = useNavigate();
+  const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounce(search);
 
-  const { data, isLoading } = useQuery({
+  // fetchUsers returns a flat array, not { users, total }
+  const { data: allUsers = [], isLoading } = useQuery({
     queryKey: ["users", debouncedSearch],
-    queryFn: () => fetchUsers({ search: debouncedSearch }),
+    queryFn: fetchUsers,
   });
 
-  const users = data?.users ?? [];
-  const total = data?.total ?? 0;
+  // Client-side search filter
+  const users = debouncedSearch
+    ? allUsers.filter(
+        (u) =>
+          u.full_name?.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
+          u.email?.toLowerCase().includes(debouncedSearch.toLowerCase())
+      )
+    : allUsers;
+
+  const total = users.length;
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
@@ -101,7 +111,10 @@ export default function UsersPage() {
                     <tr key={i}>
                       {Array.from({ length: 7 }, (_, j) => (
                         <td key={j} className="px-4 py-4 first:pl-6">
-                          <div className="h-4 bg-ink-800 rounded animate-pulse" style={{ width: `${60 + j * 10}%` }} />
+                          <div
+                            className="h-4 bg-ink-800 rounded animate-pulse"
+                            style={{ width: `${60 + j * 10}%` }}
+                          />
                         </td>
                       ))}
                     </tr>
@@ -119,10 +132,10 @@ export default function UsersPage() {
                             {(u.full_name || u.email || "?")[0].toUpperCase()}
                           </div>
                           <div className="min-w-0">
-                            <p className="text-ink-100 font-medium truncate max-w-[180px]">
+                            <p className="text-ink-100 font-medium truncate">
                               {u.full_name || "—"}
                             </p>
-                            <p className="text-ink-500 text-xs truncate max-w-[180px]">{u.email}</p>
+                            <p className="text-ink-500 text-xs truncate">{u.email}</p>
                           </div>
                         </div>
                       </td>
@@ -134,29 +147,21 @@ export default function UsersPage() {
 
                       {/* XP / Level */}
                       <td className="px-4 py-4">
-                        <div className="flex items-center gap-1.5">
-                          <Zap className="w-3.5 h-3.5 text-amber-400" />
-                          <span className="font-mono-data text-ink-200 text-xs">
-                            {(u.xp_points ?? 0).toLocaleString()}
-                          </span>
-                          <span className="text-ink-600 text-xs">· Lv.{u.level ?? 1}</span>
-                        </div>
+                        <p className="text-ink-100 font-mono text-xs">
+                          {(u.xp_points ?? 0).toLocaleString()} XP
+                        </p>
+                        <p className="text-ink-500 text-xs">Level {u.level ?? 1}</p>
                       </td>
 
                       {/* AI Progress */}
                       <td className="px-4 py-4">
                         <div className="flex items-center gap-2">
-                          <Brain className="w-3.5 h-3.5 text-violet-400 flex-shrink-0" />
-                          <div className="flex items-center gap-1">
-                            <span className="font-mono-data text-xs text-ink-200">
-                              {u.ai_days_completed ?? 0}
-                            </span>
-                            <span className="text-ink-600 text-xs">/10</span>
-                          </div>
-                          {/* Mini progress bar */}
+                          <span className="text-ink-300 text-xs font-mono">
+                            {u.ai_days_completed ?? 0}/10
+                          </span>
                           <div className="w-16 h-1.5 bg-ink-700 rounded-full overflow-hidden">
                             <div
-                              className="h-full bg-violet-500 rounded-full"
+                              className="h-full bg-sprout-500 rounded-full"
                               style={{ width: `${((u.ai_days_completed ?? 0) / 10) * 100}%` }}
                             />
                           </div>
@@ -169,7 +174,7 @@ export default function UsersPage() {
                       </td>
 
                       {/* Joined */}
-                      <td className="px-4 py-4 text-xs text-ink-500 font-mono-data">
+                      <td className="px-4 py-4 text-xs text-ink-500 font-mono">
                         {u.created_at ? format(parseISO(u.created_at), "MMM d, yyyy") : "—"}
                       </td>
 
@@ -185,7 +190,9 @@ export default function UsersPage() {
           {!isLoading && users.length === 0 && (
             <div className="flex flex-col items-center py-16 text-ink-600">
               <Users className="w-10 h-10 mb-3 opacity-40" />
-              <p className="text-sm">No users found{search ? ` matching "${search}"` : ""}</p>
+              <p className="text-sm">
+                No users found{search ? ` matching "${search}"` : ""}
+              </p>
             </div>
           )}
         </div>
