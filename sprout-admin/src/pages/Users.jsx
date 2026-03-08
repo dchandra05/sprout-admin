@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { format, parseISO, formatDistanceToNow } from "date-fns";
 import { Search, ChevronRight, Users, Brain, Zap } from "lucide-react";
-import { fetchAllUsers } from "@/lib/adminApi";
+import { fetchUsers } from "@/lib/adminApi";
 
 function useDebounce(value, delay = 350) {
   const [debounced, setDebounced] = React.useState(value);
@@ -49,7 +49,7 @@ export default function UsersPage() {
 
   const { data, isLoading } = useQuery({
     queryKey: ["users", debouncedSearch],
-    queryFn: () => fetchAllUsers({ search: debouncedSearch }),
+    queryFn: () => fetchUsers({ search: debouncedSearch }),
   });
 
   const users = data?.users ?? [];
