@@ -1,0 +1,8 @@
+{
+  "installCommand": "cd sprout-admin && npm install",
+  "buildCommand": "cd sprout-admin && npm run build",
+  "outputDirectory": "sprout-admin/dist",
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
