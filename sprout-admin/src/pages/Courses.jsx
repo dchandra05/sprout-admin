@@ -82,12 +82,6 @@ export default function CoursesPage() {
   } = useQuery({
     queryKey: ["courses"],
     queryFn:  fetchCourses,
-    onSuccess: (data) => {
-      // Auto-select the first course once loaded
-      if (data.length > 0 && !selectedCourse) {
-        setSelectedCourse(data[0]);
-      }
-    },
   });
 
   // Auto-select first course after load (works alongside onSuccess for React Query v5)

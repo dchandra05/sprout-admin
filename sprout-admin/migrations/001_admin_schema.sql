@@ -39,8 +39,6 @@ CREATE TABLE IF NOT EXISTS public.user_activity_events (
 CREATE INDEX IF NOT EXISTS idx_activity_user_email ON public.user_activity_events(user_email);
 CREATE INDEX IF NOT EXISTS idx_activity_created_at ON public.user_activity_events(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_activity_event_type ON public.user_activity_events(event_type);
--- Composite for DAU queries
-CREATE INDEX IF NOT EXISTS idx_activity_date_user ON public.user_activity_events(DATE(created_at), user_email);
 
 -- ─────────────────────────────────────────────────────────────
 -- 3. AI COURSE DAY PROGRESS TABLE
