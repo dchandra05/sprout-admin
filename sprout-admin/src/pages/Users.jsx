@@ -95,7 +95,7 @@ export default function UsersPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-ink-700/60">
-                {["User", "Role", "XP / Level", "AI Progress", "Last Seen", "Joined", ""].map((h) => (
+                {["User", "Role", "XP / Level", "Lessons", "Last Seen", "Joined", ""].map((h) => (
                   <th
                     key={h}
                     className="text-left text-ink-500 font-medium text-xs px-4 py-3 first:pl-6 last:pr-6 whitespace-nowrap"
@@ -153,19 +153,11 @@ export default function UsersPage() {
                         <p className="text-ink-500 text-xs">Level {u.level ?? 1}</p>
                       </td>
 
-                      {/* AI Progress */}
+                      {/* Lessons completed */}
                       <td className="px-4 py-4">
-                        <div className="flex items-center gap-2">
-                          <span className="text-ink-300 text-xs font-mono">
-                            {u.ai_days_completed ?? 0}/10
-                          </span>
-                          <div className="w-16 h-1.5 bg-ink-700 rounded-full overflow-hidden">
-                            <div
-                              className="h-full bg-sprout-500 rounded-full"
-                              style={{ width: `${((u.ai_days_completed ?? 0) / 10) * 100}%` }}
-                            />
-                          </div>
-                        </div>
+                        <span className="text-ink-300 text-xs font-mono">
+                          {(u.total_lessons_completed ?? 0).toLocaleString()}
+                        </span>
                       </td>
 
                       {/* Last Seen */}

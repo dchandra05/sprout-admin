@@ -2,14 +2,15 @@ import React, { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/AuthContext";
 import {
-  LayoutDashboard, Users, BookOpen, LogOut,
+  LayoutDashboard, Users, BookOpen, Monitor, LogOut,
   Sprout, Menu, X, ChevronRight,
 } from "lucide-react";
 
 const NAV = [
-  { to: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
-  { to: "/users",     icon: Users,           label: "Users"     },
-  { to: "/courses",   icon: BookOpen,        label: "Courses"   },
+  { to: "/dashboard",   icon: LayoutDashboard, label: "Dashboard"   },
+  { to: "/users",       icon: Users,           label: "Users"       },
+  { to: "/courses",     icon: BookOpen,        label: "Courses"     },
+  { to: "/simulations", icon: Monitor,         label: "Simulations" },
 ];
 
 export default function Layout({ children }) {

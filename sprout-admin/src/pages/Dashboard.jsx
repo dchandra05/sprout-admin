@@ -110,9 +110,9 @@ export default function DashboardPage() {
           loading={kpiLoading}
         />
         <StatCard
-          label="AI Lessons Completed"
-          value={kpis?.aiCompletions?.toLocaleString()}
-          sub="all time, all users"
+          label="Lessons Completed"
+          value={kpis?.totalLessonCompletions?.toLocaleString()}
+          sub="all courses, all time"
           icon={Brain}
           accent="amber"
           loading={kpiLoading}

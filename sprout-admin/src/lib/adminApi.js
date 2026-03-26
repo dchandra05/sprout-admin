@@ -4,18 +4,20 @@ import { supabase } from "@/lib/supabaseClient";
 // ─── KPI Overview ────────────────────────────────────────────
 
 export async function fetchKPIs() {
-  const [usersRes, activityRes, aiRes] = await Promise.all([
+  const [usersRes, activityRes, lessonRes] = await Promise.all([
     supabase.from("profiles").select("id, created_at, last_seen_at"),
     supabase
       .from("user_activity_events")
       .select("user_email, created_at")
       .gte("created_at", new Date(Date.now() - 30 * 864e5).toISOString()),
-    supabase.from("ai_course_day_progress").select("user_email, completed"),
+    supabase
+      .from("user_lesson_progress")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "completed"),
   ]);
 
-  const users      = usersRes.data      ?? [];
-  const activity   = activityRes.data   ?? [];
-  const aiProgress = aiRes.data         ?? [];
+  const users    = usersRes.data    ?? [];
+  const activity = activityRes.data ?? [];
 
   const now    = Date.now();
   const day1   = now - 1  * 864e5;
@@ -30,15 +32,25 @@ export async function fetchKPIs() {
   );
   const mauEmails = new Set(activity.map((e) => e.user_email));
 
+  // Also count legacy AI completions as fallback if new table is empty
+  let totalLessonCompletions = lessonRes.count ?? 0;
+  if (totalLessonCompletions === 0) {
+    const { data: legacyData } = await supabase
+      .from("ai_course_day_progress")
+      .select("completed")
+      .eq("completed", true);
+    totalLessonCompletions = legacyData?.length ?? 0;
+  }
+
   return {
-    totalUsers:    users.length,
-    newUsersToday: users.filter((u) => new Date(u.created_at) >= new Date(day1)).length,
-    newUsersWeek:  users.filter((u) => new Date(u.created_at) >= new Date(week1)).length,
-    newUsersMonth: users.filter((u) => new Date(u.created_at) >= new Date(month1)).length,
-    dau:           dauEmails.size,
-    wau:           wauEmails.size,
-    mau:           mauEmails.size,
-    aiCompletions: aiProgress.filter((p) => p.completed).length,
+    totalUsers:            users.length,
+    newUsersToday:         users.filter((u) => new Date(u.created_at) >= new Date(day1)).length,
+    newUsersWeek:          users.filter((u) => new Date(u.created_at) >= new Date(week1)).length,
+    newUsersMonth:         users.filter((u) => new Date(u.created_at) >= new Date(month1)).length,
+    dau:                   dauEmails.size,
+    wau:                   wauEmails.size,
+    mau:                   mauEmails.size,
+    totalLessonCompletions,
   };
 }
 
@@ -144,7 +156,7 @@ export async function fetchUserDetail(userId) {
       .limit(100),
     supabase
       .from("user_lesson_progress")
-      .select("*, courses(name, slug)")
+      .select("*, courses(name, slug, total_days)")
       .eq("user_id", userId)
       .order("updated_at", { ascending: false }),
   ]);
@@ -163,7 +175,6 @@ export async function fetchCourses() {
   const { data, error } = await supabase
     .from("courses")
     .select("id, slug, name, total_days")
-    .eq("is_active", true)
     .order("name");
 
   if (error) throw error;
@@ -277,4 +288,56 @@ export async function fetchAICourseStats() {
   }
 
   return fetchCourseStats(courseRow.id, "ai-literacy", courseRow.total_days ?? 10);
+}
+
+// ─── Simulations ──────────────────────────────────────────────
+
+const SIMULATIONS = [
+  { slug: "build-your-first-budget",      name: "Build Your First Budget",      category: "budgeting"  },
+  { slug: "college-student-budget",       name: "College Student Budget",       category: "budgeting"  },
+  { slug: "new-graduate-budget",          name: "New Graduate Budget",          category: "budgeting"  },
+  { slug: "early-career-dual-income",     name: "Early Career – Dual Income",   category: "budgeting"  },
+  { slug: "mid-career-family-budget",     name: "Mid-Career Family Budget",     category: "budgeting"  },
+  { slug: "paper-trading",               name: "Paper Trading",                category: "investing"  },
+  { slug: "investment-growth-calculator", name: "Investment Growth Calculator", category: "investing"  },
+  { slug: "investment-calculator",        name: "Investment Growth Calculator", category: "investing"  },
+  { slug: "paycheck-simulation",          name: "Paycheck Simulation",          category: "paycheck"   },
+  { slug: "budget-simulation",            name: "Budget Simulation",            category: "budgeting"  },
+];
+
+export async function fetchSimulationStats(days = 30) {
+  const since = days === 0
+    ? "2000-01-01T00:00:00Z"
+    : new Date(Date.now() - days * 864e5).toISOString();
+
+  const { data, error } = await supabase
+    .from("user_activity_events")
+    .select("event_type, event_data, user_email, created_at")
+    .in("event_type", ["simulation_start", "simulation_complete"])
+    .gte("created_at", since);
+
+  if (error) throw error;
+
+  const bySlug = {};
+  for (const row of data ?? []) {
+    const slug = row.event_data?.simulation_slug;
+    if (!slug) continue;
+    if (!bySlug[slug]) bySlug[slug] = { starts: new Set(), completions: new Set() };
+    if (row.event_type === "simulation_start")    bySlug[slug].starts.add(row.user_email);
+    if (row.event_type === "simulation_complete") bySlug[slug].completions.add(row.user_email);
+  }
+
+  return SIMULATIONS.map((sim) => {
+    const s = bySlug[sim.slug];
+    const starts      = s?.starts.size      ?? 0;
+    const completions = s?.completions.size ?? 0;
+    return {
+      slug:           sim.slug,
+      name:           sim.name,
+      category:       sim.category,
+      uniqueStarts:       starts,
+      uniqueCompletions:  completions,
+      completionRate: starts > 0 ? Math.round((completions / starts) * 100) : 0,
+    };
+  });
 }

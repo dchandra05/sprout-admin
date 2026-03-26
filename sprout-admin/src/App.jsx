@@ -5,12 +5,13 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider, useAuth } from "@/lib/AuthContext";
 import { queryClient }           from "@/lib/queryClient";
 
-import LoginPage      from "@/pages/Login";
-import DashboardPage  from "@/pages/Dashboard";
-import UsersPage      from "@/pages/Users";
-import UserDetailPage from "@/pages/UserDetail";
-import CoursesPage    from "@/pages/Courses";
-import Layout         from "@/components/Layout";
+import LoginPage        from "@/pages/Login";
+import DashboardPage    from "@/pages/Dashboard";
+import UsersPage        from "@/pages/Users";
+import UserDetailPage   from "@/pages/UserDetail";
+import CoursesPage      from "@/pages/Courses";
+import SimulationsPage  from "@/pages/Simulations";
+import Layout           from "@/components/Layout";
 
 function AdminGuard({ children }) {
   const { isLoading, session, isAdmin, signOut } = useAuth();
@@ -65,12 +66,13 @@ export default function App() {
                 <AdminGuard>
                   <Layout>
                     <Routes>
-                      <Route index            element={<Navigate to="/dashboard" replace />} />
-                      <Route path="dashboard" element={<DashboardPage />} />
-                      <Route path="users"     element={<UsersPage />} />
-                      <Route path="users/:id" element={<UserDetailPage />} />
-                      <Route path="courses"   element={<CoursesPage />} />
-                      <Route path="*"         element={<Navigate to="/dashboard" replace />} />
+                      <Route index               element={<Navigate to="/dashboard" replace />} />
+                      <Route path="dashboard"   element={<DashboardPage />} />
+                      <Route path="users"       element={<UsersPage />} />
+                      <Route path="users/:id"   element={<UserDetailPage />} />
+                      <Route path="courses"     element={<CoursesPage />} />
+                      <Route path="simulations" element={<SimulationsPage />} />
+                      <Route path="*"           element={<Navigate to="/dashboard" replace />} />
                     </Routes>
                   </Layout>
                 </AdminGuard>
