@@ -3,8 +3,6 @@ import { supabase } from "@/lib/supabaseClient";
 
 const AuthContext = createContext(null);
 
-const ALLOWED_ADMIN_EMAIL = import.meta.env.VITE_ADMIN_EMAIL?.trim().toLowerCase() ?? null;
-
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(undefined);  // undefined = still initializing
   const [profile, setProfile] = useState(undefined);  // undefined = not yet fetched
@@ -89,10 +87,6 @@ export function AuthProvider({ children }) {
   // ─── 3. signIn ──────────────────────────────────────────────────────────────
   const signIn = async (email, password) => {
     const normalized = email.trim().toLowerCase();
-
-    if (ALLOWED_ADMIN_EMAIL && normalized !== ALLOWED_ADMIN_EMAIL) {
-      throw new Error("This email is not authorized to access the admin panel.");
-    }
 
     if (import.meta.env.DEV) console.log("[AdminAuth] signing in:", normalized);
 

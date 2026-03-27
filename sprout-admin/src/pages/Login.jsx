@@ -1,15 +1,13 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/AuthContext";
-import { Sprout, Lock, Mail, AlertCircle, CheckCircle } from "lucide-react";
-
-const ALLOWED_EMAIL = import.meta.env.VITE_ADMIN_EMAIL?.trim().toLowerCase() ?? null;
+import { Sprout, Lock, Mail, AlertCircle } from "lucide-react";
 
 export default function LoginPage() {
   const { signIn, session, isAdmin, isLoading } = useAuth();
   const navigate = useNavigate();
 
-  const [email,      setEmail]      = useState(ALLOWED_EMAIL ?? "");
+  const [email,      setEmail]      = useState("");
   const [password,   setPassword]   = useState("");
   const [error,      setError]      = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -35,11 +33,6 @@ export default function LoginPage() {
 
     const normalizedEmail = email.trim().toLowerCase();
 
-    if (ALLOWED_EMAIL && normalizedEmail !== ALLOWED_EMAIL) {
-      setError("This email is not authorized to access the admin panel.");
-      return;
-    }
-
     if (import.meta.env.DEV) console.log("[Login] submitting for:", normalizedEmail);
 
     setSubmitting(true);
@@ -54,8 +47,7 @@ export default function LoginPage() {
     }
   };
 
-  const emailIsAllowed = !ALLOWED_EMAIL || email.trim().toLowerCase() === ALLOWED_EMAIL;
-  const showSpinner    = submitting || (session && isLoading);
+  const showSpinner = submitting || (session && isLoading);
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden">
@@ -98,19 +90,9 @@ export default function LoginPage() {
                 autoComplete="email"
                 placeholder="admin@example.com"
                 disabled={showSpinner}
-                className={`w-full bg-ink-800 border text-ink-100 rounded-xl pl-10 pr-10 py-3 text-sm placeholder:text-ink-600 focus:outline-none focus:ring-1 transition-colors disabled:opacity-50 ${
-                  !emailIsAllowed && email.length > 0
-                    ? "border-red-500/50 focus:border-red-500/50 focus:ring-red-500/20"
-                    : "border-ink-700 focus:border-sprout-500/50 focus:ring-sprout-500/30"
-                }`}
+                className="w-full bg-ink-800 border border-ink-700 text-ink-100 rounded-xl pl-10 pr-4 py-3 text-sm placeholder:text-ink-600 focus:outline-none focus:ring-1 focus:border-sprout-500/50 focus:ring-sprout-500/30 transition-colors disabled:opacity-50"
               />
-              {emailIsAllowed && email.length > 0 && ALLOWED_EMAIL && (
-                <CheckCircle className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-sprout-500" />
-              )}
             </div>
-            {!emailIsAllowed && email.length > 3 && (
-              <p className="text-red-400 text-xs pl-1">Not an authorized admin email.</p>
-            )}
           </div>
 
           <div className="space-y-1">
@@ -132,7 +114,7 @@ export default function LoginPage() {
 
           <button
             type="submit"
-            disabled={showSpinner || (!emailIsAllowed && email.length > 0)}
+            disabled={showSpinner}
             className="w-full py-3 bg-sprout-500 hover:bg-sprout-400 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold rounded-xl text-sm transition-colors shadow-lg shadow-sprout-500/20 mt-2"
           >
             {showSpinner ? (
@@ -147,10 +129,7 @@ export default function LoginPage() {
         </form>
 
         <p className="text-center text-ink-700 text-xs mt-8">
-          Student app →{" "}
-          <a href="/" className="text-ink-500 hover:text-ink-300 transition-colors underline underline-offset-2">
-            sprout.app
-          </a>
+          Access requires <span className="text-ink-500">admin</span> role in the database.
         </p>
       </div>
     </div>
