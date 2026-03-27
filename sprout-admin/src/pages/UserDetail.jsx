@@ -35,10 +35,19 @@ function ProfileRow({ icon: Icon, label, value, mono }) {
   );
 }
 
-function CourseProgressCard({ courseName, courseSlug, lessons, totalDays }) {
+function CourseProgressCard({ courseName, courseSlug, lessons, totalDays, trackingType }) {
+  const isDay       = trackingType === "day";
   const completed   = lessons.filter((l) => l.status === "completed");
-  const pct         = totalDays > 0 ? Math.round((completed.length / totalDays) * 100) : 0;
   const isAI        = courseSlug === "ai-literacy";
+
+  // For day-based courses: use fixed totalDays grid
+  // For lesson-based courses: use highest lesson number seen
+  const maxUnit     = isDay
+    ? (totalDays > 0 ? totalDays : 10)
+    : (lessons.length > 0 ? Math.max(...lessons.map((l) => l.day_number)) : 0);
+
+  const pct = maxUnit > 0 ? Math.round((completed.length / maxUnit) * 100) : 0;
+  const unitLabel = isDay ? "day" : "lesson";
 
   return (
     <div className="glass rounded-2xl p-5 space-y-3">
@@ -48,51 +57,68 @@ function CourseProgressCard({ courseName, courseSlug, lessons, totalDays }) {
           <h3 className="font-display font-semibold text-ink-200 text-sm truncate">{courseName}</h3>
         </div>
         <span className="font-mono-data text-sprout-400 text-xs font-semibold flex-shrink-0">
-          {completed.length}/{totalDays}
+          {completed.length}{maxUnit > 0 ? `/${maxUnit}` : ""} {unitLabel}s
         </span>
       </div>
 
-      <div className="w-full h-1.5 bg-ink-700 rounded-full overflow-hidden">
-        <div
-          className="h-full bg-gradient-to-r from-sprout-500 to-sprout-400 rounded-full transition-all"
-          style={{ width: `${pct}%` }}
-        />
-      </div>
+      {maxUnit > 0 && (
+        <div className="w-full h-1.5 bg-ink-700 rounded-full overflow-hidden">
+          <div
+            className="h-full bg-gradient-to-r from-sprout-500 to-sprout-400 rounded-full transition-all"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      )}
 
-      <div className="grid grid-cols-2 gap-1.5">
-        {Array.from({ length: totalDays }, (_, idx) => {
-          const dayNum = idx + 1;
-          const row    = lessons.find((l) => l.day_number === dayNum);
-          const done   = row?.status === "completed";
-          const score  = row?.quiz_score ?? null;
+      {maxUnit === 0 ? (
+        <p className="text-ink-600 text-xs">No progress recorded yet.</p>
+      ) : (
+        <div className={isDay ? "grid grid-cols-2 gap-1.5" : "space-y-1.5"}>
+          {Array.from({ length: maxUnit }, (_, idx) => {
+            const unitNum = idx + 1;
+            const row     = lessons.find((l) => l.day_number === unitNum);
+            const done    = row?.status === "completed";
+            const score   = row?.quiz_score ?? null;
+            const lType   = row?.lesson_type ?? "lesson";
 
-          return (
-            <div
-              key={dayNum}
-              className={`flex items-start gap-2 p-2.5 rounded-lg border transition-colors ${
-                done
-                  ? "bg-sprout-500/8 border-sprout-500/20"
-                  : "bg-ink-800/50 border-ink-700/40"
-              }`}
-            >
-              {done
-                ? <CheckCircle className="w-3.5 h-3.5 text-sprout-400 flex-shrink-0 mt-0.5" />
-                : <Circle      className="w-3.5 h-3.5 text-ink-700   flex-shrink-0 mt-0.5" />
-              }
-              <div className="min-w-0">
-                <p className={`text-xs font-medium leading-tight ${done ? "text-ink-200" : "text-ink-600"}`}>
-                  {isAI && AI_DAY_TITLES[idx]
-                    ? `Day ${dayNum}: ${AI_DAY_TITLES[idx]}`
-                    : `Day ${dayNum}`}
-                </p>
-                {done && score != null && (
-                  <p className="text-ink-600 text-xs mt-0.5 font-mono-data">Score: {score}%</p>
-                )}
+            const typeLabel = lType === "quiz"     ? "Quiz"
+                            : lType === "exam"     ? "Exam"
+                            : lType === "activity" ? "Activity"
+                            : null;
+
+            return (
+              <div
+                key={unitNum}
+                className={`flex items-start gap-2 p-2.5 rounded-lg border transition-colors ${
+                  done
+                    ? "bg-sprout-500/8 border-sprout-500/20"
+                    : "bg-ink-800/50 border-ink-700/40"
+                }`}
+              >
+                {done
+                  ? <CheckCircle className="w-3.5 h-3.5 text-sprout-400 flex-shrink-0 mt-0.5" />
+                  : <Circle      className="w-3.5 h-3.5 text-ink-700   flex-shrink-0 mt-0.5" />
+                }
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <p className={`text-xs font-medium leading-tight ${done ? "text-ink-200" : "text-ink-600"}`}>
+                      {isAI && AI_DAY_TITLES[idx]
+                        ? `Day ${unitNum}: ${AI_DAY_TITLES[idx]}`
+                        : `${isDay ? "Day" : "Lesson"} ${unitNum}`}
+                    </p>
+                    {typeLabel && (
+                      <span className="text-ink-600 text-[10px] bg-ink-700 px-1 rounded">{typeLabel}</span>
+                    )}
+                  </div>
+                  {done && score != null && (
+                    <p className="text-ink-600 text-xs mt-0.5 font-mono-data">Score: {score}%</p>
+                  )}
+                </div>
               </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -134,11 +160,12 @@ export default function UserDetailPage() {
     const key = row.course_id;
     if (!acc[key]) {
       acc[key] = {
-        courseId:   key,
-        courseName: row.courses?.name ?? "Unknown Course",
-        courseSlug: row.courses?.slug ?? "",
-        totalDays:  row.courses?.total_days ?? 10,
-        lessons:    [],
+        courseId:     key,
+        courseName:   row.courses?.name         ?? "Unknown Course",
+        courseSlug:   row.courses?.slug         ?? "",
+        totalDays:    row.courses?.total_days   ?? 10,
+        trackingType: row.courses?.tracking_type ?? "lesson",
+        lessons:      [],
       };
     }
     acc[key].lessons.push(row);
@@ -151,13 +178,16 @@ export default function UserDetailPage() {
   const hasNewAI = courseGroupList.some((g) => g.courseSlug === "ai-literacy");
   if (!hasNewAI && aiProgress.length > 0) {
     courseGroupList.unshift({
-      courseId:   "legacy-ai",
-      courseName: "AI Literacy",
-      courseSlug: "ai-literacy",
-      lessons:    aiProgress.map((p) => ({
-        day_number: p.day_number,
-        status:     p.completed ? "completed" : "not_started",
-        quiz_score: p.quiz_score ?? null,
+      courseId:     "legacy-ai",
+      courseName:   "AI Literacy",
+      courseSlug:   "ai-literacy",
+      totalDays:    10,
+      trackingType: "day",
+      lessons:      aiProgress.map((p) => ({
+        day_number:  p.day_number,
+        status:      p.completed ? "completed" : "not_started",
+        quiz_score:  p.quiz_score ?? null,
+        lesson_type: "lesson",
       })),
     });
   }
@@ -238,6 +268,7 @@ export default function UserDetailPage() {
                 courseSlug={group.courseSlug}
                 lessons={group.lessons}
                 totalDays={group.totalDays ?? 10}
+                trackingType={group.trackingType ?? "lesson"}
               />
             ))
           )}

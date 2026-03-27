@@ -92,21 +92,23 @@ export async function trackLogin() {
 // ─── Lesson / Course ─────────────────────────────────────────
 
 /**
- * Call when a user completes a lesson day in ANY course.
+ * Call when a user completes any lesson, quiz, exam, or activity in ANY course.
  *
- * @param {string} courseSlug  e.g. "budgeting-fundamentals", "ai-literacy"
- * @param {number} dayNumber   1-based lesson number
- * @param {number|null} quizScore  0–100, or null if no quiz
+ * @param {string} courseSlug   e.g. "budgeting-fundamentals", "ai-literacy"
+ * @param {number} lessonNumber 1-based sequential lesson/unit number within the course
+ * @param {number|null} quizScore  0–100, or null if this unit has no quiz
+ * @param {'lesson'|'quiz'|'exam'|'activity'} lessonType  defaults to 'lesson'
  */
-export async function trackLessonComplete(courseSlug, dayNumber, quizScore = null) {
+export async function trackLessonComplete(courseSlug, lessonNumber, quizScore = null, lessonType = "lesson") {
   const user = await getUser();
   if (!user) return;
 
   // Fire the activity event (feeds the admin's activity feed)
   await insertEvent(user.email, "lesson_complete", {
-    course_slug: courseSlug,
-    day_number:  dayNumber,
-    quiz_score:  quizScore,
+    course_slug:  courseSlug,
+    day_number:   lessonNumber,
+    quiz_score:   quizScore,
+    lesson_type:  lessonType,
   });
 
   // Write structured progress (feeds the admin's Courses page charts)
@@ -122,7 +124,8 @@ export async function trackLessonComplete(courseSlug, dayNumber, quizScore = nul
       {
         user_id:      user.id,
         course_id:    courseId,
-        day_number:   dayNumber,
+        day_number:   lessonNumber,
+        lesson_type:  lessonType,
         status:       "completed",
         quiz_score:   quizScore,
         xp_earned:    10,

@@ -156,9 +156,9 @@ export async function fetchUserDetail(userId) {
       .limit(100),
     supabase
       .from("user_lesson_progress")
-      .select("*, courses(name, slug, total_days)")
+      .select("*, courses(name, slug, total_days, tracking_type)")
       .eq("user_id", userId)
-      .order("updated_at", { ascending: false }),
+      .order("day_number"),
   ]);
 
   return {
@@ -174,22 +174,22 @@ export async function fetchUserDetail(userId) {
 export async function fetchCourses() {
   const { data, error } = await supabase
     .from("courses")
-    .select("id, slug, name, total_days")
+    .select("id, slug, name, total_days, tracking_type")
     .order("name");
 
   if (error) throw error;
   return data ?? [];
 }
 
-export async function fetchCourseStats(courseId, courseSlug, totalDays = 10) {
+export async function fetchCourseStats(courseId, courseSlug, totalDays = 10, trackingType = "lesson") {
   // Try new schema first
   const { data: newData, error: newErr } = await supabase
     .from("user_lesson_progress")
-    .select("day_number, status, quiz_score, user_id")
+    .select("day_number, status, quiz_score, lesson_type, user_id")
     .eq("course_id", courseId);
 
   if (!newErr && newData && newData.length > 0) {
-    return _buildDayStats(newData, totalDays, {
+    return _buildUnitStats(newData, totalDays, trackingType, {
       completedField: (r) => r.status === "completed",
       scoreField:     (r) => r.quiz_score,
     });
@@ -201,40 +201,58 @@ export async function fetchCourseStats(courseId, courseSlug, totalDays = 10) {
       .from("ai_course_day_progress")
       .select("day_number, completed, quiz_score, user_email");
     if (legacyErr) throw legacyErr;
-    return _buildDayStats(legacyData ?? [], totalDays, {
+    return _buildUnitStats(legacyData ?? [], totalDays, "day", {
       completedField: (r) => r.completed,
       scoreField:     (r) => r.quiz_score,
     });
   }
 
-  return _buildDayStats([], totalDays, {
-    completedField: () => false,
-    scoreField:     () => null,
-  });
+  return [];
 }
 
-function _buildDayStats(rows, totalDays, { completedField, scoreField }) {
-  const byDay = {};
+/**
+ * Builds per-unit (day or lesson) stats from raw progress rows.
+ *
+ * For 'day' courses: generates a fixed array of totalDays slots.
+ * For 'lesson' courses: generates slots only up to the highest lesson seen.
+ */
+function _buildUnitStats(rows, totalDays, trackingType, { completedField, scoreField }) {
+  const isDay = trackingType === "day";
+  const byUnit = {};
+
   for (const row of rows) {
-    const d = row.day_number;
-    if (!byDay[d]) byDay[d] = { day: d, attempts: 0, completions: 0, scores: [] };
-    byDay[d].attempts++;
+    const n = row.day_number;
+    if (!byUnit[n]) byUnit[n] = { unit: n, attempts: 0, completions: 0, scores: [] };
+    byUnit[n].attempts++;
     if (completedField(row)) {
-      byDay[d].completions++;
+      byUnit[n].completions++;
       const s = scoreField(row);
-      if (s != null) byDay[d].scores.push(s);
+      if (s != null) byUnit[n].scores.push(s);
     }
   }
 
-  return Array.from({ length: totalDays }, (_, i) => {
-    const d = byDay[i + 1] ?? { day: i + 1, attempts: 0, completions: 0, scores: [] };
+  // Determine how many slots to generate
+  let count;
+  if (isDay) {
+    count = totalDays > 0 ? totalDays : 10;
+  } else {
+    const keys = Object.keys(byUnit).map(Number);
+    count = keys.length === 0 ? 0 : Math.max(...keys);
+  }
+
+  if (count === 0) return [];
+
+  return Array.from({ length: count }, (_, i) => {
+    const n = i + 1;
+    const d = byUnit[n] ?? { unit: n, attempts: 0, completions: 0, scores: [] };
     return {
-      day:         d.day,
-      label:       `Day ${d.day}`,
+      unit:      n,
+      label:     isDay ? `Day ${n}` : `L${n}`,
+      fullLabel: isDay ? `Day ${n}` : `Lesson ${n}`,
       attempts:    d.attempts,
       completions: d.completions,
-      rate:        d.attempts > 0 ? Math.round((d.completions / d.attempts) * 100) : 0,
-      avgScore:    d.scores.length > 0
+      rate:     d.attempts > 0 ? Math.round((d.completions / d.attempts) * 100) : 0,
+      avgScore: d.scores.length > 0
         ? Math.round(d.scores.reduce((a, b) => a + b, 0) / d.scores.length)
         : null,
     };
@@ -287,7 +305,7 @@ export async function fetchAICourseStats() {
     });
   }
 
-  return fetchCourseStats(courseRow.id, "ai-literacy", courseRow.total_days ?? 10);
+  return fetchCourseStats(courseRow.id, "ai-literacy", courseRow.total_days ?? 10, "day");
 }
 
 // ─── Simulations ──────────────────────────────────────────────
