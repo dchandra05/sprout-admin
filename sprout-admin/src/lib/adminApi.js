@@ -174,11 +174,17 @@ export async function fetchUserDetail(userId) {
 export async function fetchCourses() {
   const { data, error } = await supabase
     .from("courses")
-    .select("id, slug, name, total_days, tracking_type")
+    .select("*")
     .order("name");
 
   if (error) throw error;
-  return data ?? [];
+
+  // Derive tracking_type client-side if the column doesn't exist yet
+  // (safe if migration 006/007 haven't been run in Supabase)
+  return (data ?? []).map((course) => ({
+    ...course,
+    tracking_type: course.tracking_type ?? (course.slug === "ai-literacy" ? "day" : "lesson"),
+  }));
 }
 
 export async function fetchCourseStats(courseId, courseSlug, totalDays = 10, trackingType = "lesson") {
@@ -195,7 +201,7 @@ export async function fetchCourseStats(courseId, courseSlug, totalDays = 10, tra
     });
   }
 
-  // Fallback to legacy table for AI Literacy
+  // Path 2 — legacy table for AI Literacy only
   if (courseSlug === "ai-literacy") {
     const { data: legacyData, error: legacyErr } = await supabase
       .from("ai_course_day_progress")
@@ -207,7 +213,30 @@ export async function fetchCourseStats(courseId, courseSlug, totalDays = 10, tra
     });
   }
 
-  return [];
+  // Path 3 — activity events fallback for all lesson-based courses
+  // Covers cases where the main app fires raw events but activityTracker.js
+  // isn't integrated yet, or migration 007 trigger hasn't been run.
+  const { data: evtData } = await supabase
+    .from("user_activity_events")
+    .select("event_data, user_email")
+    .eq("event_type", "lesson_complete")
+    .filter("event_data->>course_slug", "eq", courseSlug);
+
+  if (!evtData || evtData.length === 0) return [];
+
+  const shaped = evtData
+    .map((e) => ({
+      day_number:  e.event_data?.day_number,
+      status:      "completed",
+      quiz_score:  e.event_data?.quiz_score  ?? null,
+      lesson_type: e.event_data?.lesson_type ?? "lesson",
+    }))
+    .filter((r) => r.day_number != null);
+
+  return _buildUnitStats(shaped, totalDays, trackingType, {
+    completedField: (r) => r.status === "completed",
+    scoreField:     (r) => r.quiz_score,
+  });
 }
 
 /**
@@ -274,6 +303,7 @@ export async function fetchEnrolledCount(courseId, courseSlug) {
     return { enrolled: newCount, completed: completedCount ?? 0 };
   }
 
+  // Path 2 — legacy AI Literacy table
   if (courseSlug === "ai-literacy") {
     const { data } = await supabase
       .from("ai_course_day_progress")
@@ -282,7 +312,15 @@ export async function fetchEnrolledCount(courseId, courseSlug) {
     return { enrolled: uniqueUsers, completed: 0 };
   }
 
-  return { enrolled: 0, completed: 0 };
+  // Path 3 — count distinct users from activity events for all other courses
+  const { data: evtData } = await supabase
+    .from("user_activity_events")
+    .select("user_email")
+    .eq("event_type", "lesson_complete")
+    .filter("event_data->>course_slug", "eq", courseSlug);
+
+  const uniqueEnrolled = new Set((evtData ?? []).map((r) => r.user_email)).size;
+  return { enrolled: uniqueEnrolled, completed: 0 };
 }
 
 // ─── Legacy alias ─────────────────────────────────────────────
@@ -299,7 +337,7 @@ export async function fetchAICourseStats() {
       .from("ai_course_day_progress")
       .select("day_number, completed, quiz_score, user_email");
     if (error) throw error;
-    return _buildDayStats(data ?? [], 10, {
+    return _buildUnitStats(data ?? [], 10, "day", {
       completedField: (r) => r.completed,
       scoreField:     (r) => r.quiz_score,
     });
@@ -310,17 +348,15 @@ export async function fetchAICourseStats() {
 
 // ─── Simulations ──────────────────────────────────────────────
 
-const SIMULATIONS = [
-  { slug: "build-your-first-budget",      name: "Build Your First Budget",      category: "budgeting"  },
-  { slug: "college-student-budget",       name: "College Student Budget",       category: "budgeting"  },
-  { slug: "new-graduate-budget",          name: "New Graduate Budget",          category: "budgeting"  },
-  { slug: "early-career-dual-income",     name: "Early Career – Dual Income",   category: "budgeting"  },
-  { slug: "mid-career-family-budget",     name: "Mid-Career Family Budget",     category: "budgeting"  },
-  { slug: "paper-trading",               name: "Paper Trading",                category: "investing"  },
-  { slug: "investment-growth-calculator", name: "Investment Growth Calculator", category: "investing"  },
-  { slug: "investment-calculator",        name: "Investment Growth Calculator", category: "investing"  },
-  { slug: "paycheck-simulation",          name: "Paycheck Simulation",          category: "paycheck"   },
-  { slug: "budget-simulation",            name: "Budget Simulation",            category: "budgeting"  },
+// Canonical fallback list — matches migration 005 seed data exactly
+const SIMULATIONS_FALLBACK = [
+  { slug: "build-your-first-budget",      name: "Build Your First Budget",      category: "budgeting" },
+  { slug: "college-student-budget",       name: "College Student Budget",       category: "budgeting" },
+  { slug: "new-graduate-budget",          name: "New Graduate Budget",          category: "budgeting" },
+  { slug: "early-career-dual-income",     name: "Early Career – Dual Income",   category: "budgeting" },
+  { slug: "mid-career-family-budget",     name: "Mid-Career Family Budget",     category: "budgeting" },
+  { slug: "paper-trading",               name: "Paper Trading",                category: "investing" },
+  { slug: "investment-growth-calculator", name: "Investment Growth Calculator", category: "investing" },
 ];
 
 export async function fetchSimulationStats(days = 30) {
@@ -328,16 +364,27 @@ export async function fetchSimulationStats(days = 30) {
     ? "2000-01-01T00:00:00Z"
     : new Date(Date.now() - days * 864e5).toISOString();
 
-  const { data, error } = await supabase
-    .from("user_activity_events")
-    .select("event_type, event_data, user_email, created_at")
-    .in("event_type", ["simulation_start", "simulation_complete"])
-    .gte("created_at", since);
+  // Fetch simulation list from DB (source of truth) and activity events in parallel
+  const [simsRes, eventsRes] = await Promise.all([
+    supabase
+      .from("simulations")
+      .select("slug, name, category")
+      .eq("is_active", true)
+      .order("name"),
+    supabase
+      .from("user_activity_events")
+      .select("event_type, event_data, user_email, created_at")
+      .in("event_type", ["simulation_start", "simulation_complete"])
+      .gte("created_at", since),
+  ]);
 
-  if (error) throw error;
+  // Use DB list if available; fall back to hardcoded if simulations table is empty/missing
+  const simList = (simsRes.data && simsRes.data.length > 0) ? simsRes.data : SIMULATIONS_FALLBACK;
+
+  if (eventsRes.error) throw eventsRes.error;
 
   const bySlug = {};
-  for (const row of data ?? []) {
+  for (const row of eventsRes.data ?? []) {
     const slug = row.event_data?.simulation_slug;
     if (!slug) continue;
     if (!bySlug[slug]) bySlug[slug] = { starts: new Set(), completions: new Set() };
@@ -345,7 +392,7 @@ export async function fetchSimulationStats(days = 30) {
     if (row.event_type === "simulation_complete") bySlug[slug].completions.add(row.user_email);
   }
 
-  return SIMULATIONS.map((sim) => {
+  return simList.map((sim) => {
     const s = bySlug[sim.slug];
     const starts      = s?.starts.size      ?? 0;
     const completions = s?.completions.size ?? 0;
