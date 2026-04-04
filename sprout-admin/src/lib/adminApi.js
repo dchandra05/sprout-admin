@@ -219,7 +219,7 @@ export async function fetchCourseStats(courseId, courseSlug, totalDays = 10, tra
   const { data: evtData } = await supabase
     .from("user_activity_events")
     .select("event_data, user_email")
-    .eq("event_type", "lesson_complete")
+    .in("event_type", ["lesson_complete", "lesson_completed"])
     .filter("event_data->>course_slug", "eq", courseSlug);
 
   if (!evtData || evtData.length === 0) return [];
@@ -316,7 +316,7 @@ export async function fetchEnrolledCount(courseId, courseSlug) {
   const { data: evtData } = await supabase
     .from("user_activity_events")
     .select("user_email")
-    .eq("event_type", "lesson_complete")
+    .in("event_type", ["lesson_complete", "lesson_completed"])
     .filter("event_data->>course_slug", "eq", courseSlug);
 
   const uniqueEnrolled = new Set((evtData ?? []).map((r) => r.user_email)).size;
@@ -348,15 +348,12 @@ export async function fetchAICourseStats() {
 
 // ─── Simulations ──────────────────────────────────────────────
 
-// Canonical fallback list — matches migration 005 seed data exactly
+// Slugs match what the main app (sprout-dev) actually fires in activityTracker.js
 const SIMULATIONS_FALLBACK = [
-  { slug: "build-your-first-budget",      name: "Build Your First Budget",      category: "budgeting" },
-  { slug: "college-student-budget",       name: "College Student Budget",       category: "budgeting" },
-  { slug: "new-graduate-budget",          name: "New Graduate Budget",          category: "budgeting" },
-  { slug: "early-career-dual-income",     name: "Early Career – Dual Income",   category: "budgeting" },
-  { slug: "mid-career-family-budget",     name: "Mid-Career Family Budget",     category: "budgeting" },
-  { slug: "paper-trading",               name: "Paper Trading",                category: "investing" },
-  { slug: "investment-growth-calculator", name: "Investment Growth Calculator", category: "investing" },
+  { slug: "budget-simulation",     name: "Budget Simulation",            category: "budgeting" },
+  { slug: "paycheck-simulation",   name: "Paycheck Simulation",          category: "budgeting" },
+  { slug: "paper-trading",         name: "Paper Trading",                category: "investing" },
+  { slug: "investment-calculator", name: "Investment Growth Calculator", category: "investing" },
 ];
 
 export async function fetchSimulationStats(days = 30) {
